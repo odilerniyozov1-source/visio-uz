@@ -1,0 +1,198 @@
+// VISIO Prisma schema — SQLite adapted (enums -> String, String[] -> JSON String)
+// Original spec: VISIO_zai_Build_Spec.md section 4
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ===== MODELS =====
+// Note: SQLite has no native enums/array. We use String + app-level validation (Zod).
+// Enum-like fields documented with comment for clarity.
+
+model User {
+  id            String    @id @default(cuid())
+  role          String    @default("CLIENT") // CLIENT | DESIGNER | ADMIN
+  name          String
+  phone         String    @unique // +998XXXXXXXXX
+  phoneVerified Boolean   @default(false)
+  telegramId    String?   @unique
+  email         String?   @unique
+  locale        String    @default("uz") // uz | ru
+  companyId     String?
+  company       Company?  @relation(fields: [companyId], references: [id])
+  orders        Order[]   @relation("ClientOrders")
+  assigned      Order[]   @relation("DesignerOrders")
+  designerStats DesignerStat[]
+  notifications Notification[]
+  createdAt     DateTime  @default(now())
+
+  @@index([role])
+  @@index([companyId])
+}
+
+model Company {
+  id         String      @id @default(cuid())
+  name       String
+  type       String      @default("DEVELOPER") // DEVELOPER | AGENCY | DESIGNER_STUDIO | OWNER
+  plan       String      @default("PAYG") // PAYG | START | PRO | ENTERPRISE
+  balance    Int         @default(0) // render credits (count)
+  planUntil  DateTime?
+  innStir    String?
+  users      User[]
+  orders     Order[]
+  payments   Payment[]
+  createdAt  DateTime    @default(now())
+}
+
+model Order {
+  id             String    @id @default(cuid())
+  number         Int       @unique // managed in code (max+1), #1024 style
+  type           String    // RENDER_3D | STAGING | VARIATION | MARKETING
+  status         String    @default("NEW") // NEW | QUEUED | PROCESSING | QA | REVISION | DELIVERED | CANCELLED
+  clientId       String
+  client         User      @relation("ClientOrders", fields: [clientId], references: [id])
+  companyId      String?
+  company        Company?  @relation(fields: [companyId], references: [id])
+  assignedToId   String?
+  assignedTo     User?     @relation("DesignerOrders", fields: [assignedToId], references: [id])
+  styleKeys      String    @default("[]") // JSON array: ["modern","scandi"]
+  roomType       String?   // living | bedroom | kitchen | bathroom | office | full_apartment
+  areaM2         Float?
+  note           String?
+  slaDeadline    DateTime
+  revisionsUsed  Int       @default(0)
+  revisionLimit  Int       @default(1)
+  priceUzs       Int
+  assets         Asset[]
+  payment        Payment?
+  renderJobs     RenderJob[]
+  events         OrderEvent[]
+  designerStats  DesignerStat[]
+  createdAt      DateTime  @default(now())
+  deliveredAt    DateTime?
+
+  @@index([status])
+  @@index([clientId])
+  @@index([assignedToId])
+  @@index([type])
+}
+
+model Asset {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id])
+  kind       String   // INPUT_PLAN | INPUT_PHOTO | AI_VARIANT | RENDER | STAGING | MARKETING_PACK
+  r2Key      String   // storage key (local path or R2 key)
+  fileName   String
+  mime       String
+  sizeBytes  Int
+  width      Int?
+  height     Int?
+  isSelected Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([orderId])
+  @@index([kind])
+}
+
+model Payment {
+  id          String    @id @default(cuid())
+  orderId     String?   @unique
+  order       Order?    @relation(fields: [orderId], references: [id])
+  companyId   String?
+  company     Company?  @relation(fields: [companyId], references: [id])
+  provider    String    // PAYME | CLICK | UZUM | INVOICE
+  amountUzs   Int
+  purpose     String    // order | subscription | credits
+  status      String    @default("PENDING") // PENDING | PAID | FAILED | REFUNDED
+  providerTxn String?
+  createdAt   DateTime  @default(now())
+  paidAt      DateTime?
+
+  @@index([companyId])
+  @@index([status])
+}
+
+model RenderJob {
+  id         String    @id @default(cuid())
+  orderId    String
+  order      Order     @relation(fields: [orderId], references: [id])
+  workflowId String    // ComfyUI workflow version
+  provider   String    @default("runpod")
+  status     String    @default("QUEUED") // QUEUED | RUNNING | SUCCEEDED | FAILED
+  gpuCostUsd Float?
+  durationS  Int?
+  errorMsg   String?
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([orderId])
+}
+
+model OrderEvent {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id])
+  actorId    String?
+  fromStatus String?
+  toStatus   String
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([orderId])
+}
+
+model StyleCatalog {
+  key       String  @id // modern | scandi | eastern | loft | luxury | minimal
+  nameUz    String
+  nameRu    String
+  coverR2Key String?
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  channel   String   // TELEGRAM | SMS | INAPP
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Lead {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String
+  company   String?
+  message   String?
+  source    String?  // landing | instagram | telegram
+  createdAt DateTime @default(now())
+}
+
+model DesignerStat {
+  id           String   @id @default(cuid())
+  designerId   String
+  designer     User     @relation(fields: [designerId], references: [id])
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id])
+  minutesSpent Int
+  createdAt    DateTime @default(now())
+
+  @@index([designerId])
+}
+
+// App-level settings (pricing, SLA, etc.) — key/value store
+model Setting {
+  key   String @id
+  value String
+}

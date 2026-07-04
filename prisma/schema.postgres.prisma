@@ -1,0 +1,199 @@
+// VISIO production schema — PostgreSQL (Vercel/Neon/Supabase uchun)
+// Bu fayl prisma/schema.prisma ning PostgreSQL versiyasi.
+// Deploy vaqti: cp prisma/schema.postgres.prisma prisma/schema.prisma && bun run db:push
+//
+// SXEMA IDENTIK — chunki biz SQLite'ga moslashtirishda enum→String, array→JSON String qildik.
+// PostgreSQL bu turlarni qo'llab-quvvatlaydi (String = TEXT, JSON String = TEXT).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===== MODELS ===== (prisma/schema.prisma bilan aynan bir xil)
+
+model User {
+  id            String    @id @default(cuid())
+  role          String    @default("CLIENT")
+  name          String
+  phone         String    @unique
+  phoneVerified Boolean   @default(false)
+  telegramId    String?   @unique
+  email         String?   @unique
+  locale        String    @default("uz")
+  companyId     String?
+  company       Company?  @relation(fields: [companyId], references: [id])
+  orders        Order[]   @relation("ClientOrders")
+  assigned      Order[]   @relation("DesignerOrders")
+  designerStats DesignerStat[]
+  notifications Notification[]
+  createdAt     DateTime  @default(now())
+
+  @@index([role])
+  @@index([companyId])
+}
+
+model Company {
+  id         String      @id @default(cuid())
+  name       String
+  type       String      @default("DEVELOPER")
+  plan       String      @default("PAYG")
+  balance    Int         @default(0)
+  planUntil  DateTime?
+  innStir    String?
+  users      User[]
+  orders     Order[]
+  payments   Payment[]
+  createdAt  DateTime    @default(now())
+}
+
+model Order {
+  id             String    @id @default(cuid())
+  number         Int       @unique
+  type           String
+  status         String    @default("NEW")
+  clientId       String
+  client         User      @relation("ClientOrders", fields: [clientId], references: [id])
+  companyId      String?
+  company        Company?  @relation(fields: [companyId], references: [id])
+  assignedToId   String?
+  assignedTo     User?     @relation("DesignerOrders", fields: [assignedToId], references: [id])
+  styleKeys      String    @default("[]")
+  roomType       String?
+  areaM2         Float?
+  note           String?
+  slaDeadline    DateTime
+  revisionsUsed  Int       @default(0)
+  revisionLimit  Int       @default(1)
+  priceUzs       Int
+  assets         Asset[]
+  payment        Payment?
+  renderJobs     RenderJob[]
+  events         OrderEvent[]
+  designerStats  DesignerStat[]
+  createdAt      DateTime  @default(now())
+  deliveredAt    DateTime?
+
+  @@index([status])
+  @@index([clientId])
+  @@index([assignedToId])
+  @@index([type])
+}
+
+model Asset {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id])
+  kind       String
+  r2Key      String
+  fileName   String
+  mime       String
+  sizeBytes  Int
+  width      Int?
+  height     Int?
+  isSelected Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([orderId])
+  @@index([kind])
+}
+
+model Payment {
+  id          String    @id @default(cuid())
+  orderId     String?   @unique
+  order       Order?    @relation(fields: [orderId], references: [id])
+  companyId   String?
+  company     Company?  @relation(fields: [companyId], references: [id])
+  provider    String
+  amountUzs   Int
+  purpose     String
+  status      String    @default("PENDING")
+  providerTxn String?
+  createdAt   DateTime  @default(now())
+  paidAt      DateTime?
+
+  @@index([companyId])
+  @@index([status])
+}
+
+model RenderJob {
+  id         String    @id @default(cuid())
+  orderId    String
+  order      Order     @relation(fields: [orderId], references: [id])
+  workflowId String
+  provider   String    @default("runpod")
+  status     String    @default("QUEUED")
+  gpuCostUsd Float?
+  durationS  Int?
+  errorMsg   String?
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([orderId])
+}
+
+model OrderEvent {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id])
+  actorId    String?
+  fromStatus String?
+  toStatus   String
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([orderId])
+}
+
+model StyleCatalog {
+  key       String  @id
+  nameUz    String
+  nameRu    String
+  coverR2Key String?
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  channel   String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Lead {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String
+  company   String?
+  message   String?
+  source    String?
+  createdAt DateTime @default(now())
+}
+
+model DesignerStat {
+  id           String   @id @default(cuid())
+  designerId   String
+  designer     User     @relation(fields: [designerId], references: [id])
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id])
+  minutesSpent Int
+  createdAt    DateTime @default(now())
+
+  @@index([designerId])
+}
+
+model Setting {
+  key   String @id
+  value String
+}
